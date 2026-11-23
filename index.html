@@ -63,7 +63,7 @@ dialog input,dialog textarea{width:100%;margin-top:4px;color:var(--ink)}
     <label>Gemini-API-Key<input id="kg" type="password" autocomplete="off"></label>
     <label>Tavily-Key (für die Websuche)<input id="kt" type="password" autocomplete="off"></label>
     <label>Eigene Anweisung (gilt für jeden Chat)<textarea id="ks" rows="4" placeholder="z. B. Antworte auf Deutsch, kurz und technisch genau."></textarea></label>
-    <p class="meta">Die Keys bleiben nur in diesem Browser auf diesem Gerät gespeichert.</p>
+    <p class="meta">Die Keys bleiben nur in diesem Browser auf diesem Gerät gespeichert. Version 3 (Fehlerfix Verlauf).</p>
     <div style="display:flex;gap:6px;justify-content:flex-end"><button class="pri" id="ok" value="ok">Speichern</button></div>
   </form>
 </dialog>
@@ -159,7 +159,7 @@ async function call(model,level,useTool,wait){
   if(r.ok){bump(model);fillModels()}
   if(!r.ok){
     const msg=j.error?.message||('HTTP '+r.status);
-    if(r.status==400&&level){add('e','Stufe „'+level.toLowerCase()+'“ wurde abgelehnt. Meldung von Google:\n'+msg+'\n\nIch sende ohne Denk-Einstellung erneut.');return call(model,'',useTool,wait)}
+    if(r.status==400&&level&&/think|level|budget/i.test(msg)){add('e','Stufe „'+level.toLowerCase()+'“ wurde abgelehnt. Meldung von Google:\n'+msg+'\n\nIch sende ohne Denk-Einstellung erneut.');return call(model,'',useTool,wait)}
     if(r.status==429)throw new Error('Limit erreicht (Anfragen pro Minute oder Tag). Warte kurz oder wechsle das Modell. Tageslimits werden um 9:00 Uhr zurückgesetzt.\n\n'+msg);
     if(r.status==503||r.status==500)throw new Error('Google meldet dauerhaft Überlastung (Fehler '+r.status+'). Das liegt nicht an der App und zählt nicht aufs Limit. Versuche es später erneut oder wähle ein anderes Modell.\n\n'+msg);
     throw new Error(msg);
@@ -177,6 +177,7 @@ async function send(){
   const parts=files.map(f=>f.part);files=[];showFiles();$('t').value='';$('t').style.height='';
   const wait=add('b','<span class="dots">Denkt</span>');
   let note=mode==='off'?'':'Suche: '+mode;
+  const base=hist.length;
   try{
     let q=text||'Analysiere den Anhang.';
     if(mode==='on'){
@@ -207,7 +208,7 @@ async function send(){
     throw new Error('Zu viele Suchschleifen.');
   }catch(e){
     wait.remove();add('e',e.message);
-    if(hist.length&&hist[hist.length-1].role==='user')hist.pop();
+    hist.length=base;
   }
   busy=false;$('go').disabled=false;
 }
