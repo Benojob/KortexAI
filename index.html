@@ -72,10 +72,10 @@ dialog input,dialog textarea{width:100%;margin-top:4px;color:var(--ink)}
 <script>
 // Modellliste: hier kannst du später Zeilen ergänzen. lim = Free-Tier-Anfragen pro Tag.
 const MODELS=[
- {id:'gemini-3.5-flash-lite',n:'3.5 Flash-Lite',lim:500,lv:['MINIMAL','LOW','MEDIUM','HIGH']},
+ {id:'gemini-3.5-flash-lite',n:'3.5 Flash-Lite',lim:500,lv:['MINIMAL','LOW','MEDIUM']},
  {id:'gemini-4-hydrogen',n:'4 Hydrogen',lim:20,lv:['LOW','MEDIUM','HIGH','XHIGH']},
  {id:'gemini-3.8-flash',n:'3.8 Flash',lim:20,lv:['MINIMAL','LOW','MEDIUM','HIGH']},
- {id:'gemini-3.1-flash-lite',n:'3.1 Flash-Lite',lim:500,lv:['MINIMAL','LOW','MEDIUM','HIGH']}
+ {id:'gemini-3.1-flash-lite',n:'3.1 Flash-Lite',lim:500,lv:['MINIMAL','LOW','MEDIUM']}
 ];
 const $=id=>document.getElementById(id);
 const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
@@ -143,19 +143,25 @@ async function tavily(q){
 }
 const TOOL=[{functionDeclarations:[{name:'web_search',description:'Sucht aktuelle Informationen im Web. Nur nutzen, wenn dein Wissen nicht reicht oder Aktualität wichtig ist.',parameters:{type:'OBJECT',properties:{query:{type:'STRING',description:'Suchanfrage'}},required:['query']}}]}];
 
-async function call(model,level,useTool){
+async function call(model,level,useTool,wait){
   const body={contents:hist};
   const sys=(ls('ks')||'').trim();
   if(sys)body.systemInstruction={parts:[{text:sys}]};
   if(level)body.generationConfig={thinkingConfig:{thinkingLevel:level}};
   if(useTool)body.tools=TOOL;
-  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':ls('kg')},body:JSON.stringify(body)});
-  bump(model);fillModels();
-  const j=await r.json().catch(()=>({}));
+  let r,j;
+  for(let a=0;a<4;a++){
+    r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':ls('kg')},body:JSON.stringify(body)});
+    j=await r.json().catch(()=>({}));
+    if(r.status!==503&&r.status!==500)break;
+    if(a<3){if(wait)wait.firstChild.textContent='Google überlastet, Versuch '+(a+2)+'/4';await new Promise(s=>setTimeout(s,[2000,5000,9000][a]))}
+  }
+  if(r.ok){bump(model);fillModels()}
   if(!r.ok){
     const msg=j.error?.message||('HTTP '+r.status);
-    if(r.status==400&&level&&/think/i.test(msg)){add('e','Dieses Modell kennt die Stufe „'+level.toLowerCase()+'“ nicht. Ich sende ohne Denk-Einstellung erneut.');return call(model,'',useTool)}
+    if(r.status==400&&level){add('e','Stufe „'+level.toLowerCase()+'“ wurde abgelehnt. Meldung von Google:\n'+msg+'\n\nIch sende ohne Denk-Einstellung erneut.');return call(model,'',useTool,wait)}
     if(r.status==429)throw new Error('Limit erreicht (Anfragen pro Minute oder Tag). Warte kurz oder wechsle das Modell. Tageslimits werden um 9:00 Uhr zurückgesetzt.\n\n'+msg);
+    if(r.status==503||r.status==500)throw new Error('Google meldet dauerhaft Überlastung (Fehler '+r.status+'). Das liegt nicht an der App und zählt nicht aufs Limit. Versuche es später erneut oder wähle ein anderes Modell.\n\n'+msg);
     throw new Error(msg);
   }
   return j;
@@ -179,7 +185,7 @@ async function send(){
     }
     parts.push({text:q});hist.push({role:'user',parts});
     for(let i=0;i<4;i++){
-      const j=await call(model,level,mode==='auto'&&!!ls('kt'));
+      const j=await call(model,level,mode==='auto'&&!!ls('kt'),wait);
       const c=j.candidates?.[0];
       if(!c?.content){throw new Error('Keine Antwort erhalten'+(j.promptFeedback?.blockReason?' ('+j.promptFeedback.blockReason+')':'')+'.')}
       hist.push(c.content);
