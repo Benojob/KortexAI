@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mein KI-Chat">
+<meta name="theme-color" content="#14181c">
+<title>Mein KI-Chat</title>
+<style>
+:root{--bg:#f4f6f7;--panel:#fff;--ink:#14181c;--mute:#667078;--line:#dbe1e4;--me:#d8ebe6;--bot:#fff;--acc:#0f766e;--err:#b42318}
+@media (prefers-color-scheme:dark){:root{--bg:#14181c;--panel:#1c2227;--ink:#e8edef;--mute:#8b979e;--line:#2b343a;--me:#1d3b38;--bot:#1c2227;--acc:#2dd4bf;--err:#f97066}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{display:flex;gap:6px;padding:8px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap;align-items:center}
+select,button,textarea,input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+header select{flex:1 1 90px;min-width:0;font-size:14px}
+button{cursor:pointer}
+button.pri{background:var(--acc);color:#fff;border-color:var(--acc);font-weight:600}
+@media (prefers-color-scheme:dark){button.pri{color:#04201d}}
+#log{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:min(46rem,92%);padding:8px 12px;border-radius:12px;border:1px solid var(--line);overflow-wrap:anywhere}
+.m.u{align-self:flex-end;background:var(--me);white-space:pre-wrap}
+.m.b{align-self:flex-start;background:var(--bot)}
+.m.e{align-self:flex-start;color:var(--err);border-color:var(--err);white-space:pre-wrap}
+.m pre{overflow-x:auto;background:var(--bg);padding:8px;border-radius:6px}
+.m table{border-collapse:collapse;display:block;overflow-x:auto}.m td,.m th{border:1px solid var(--line);padding:3px 8px}
+.m p{margin:.4em 0}.meta{font-size:12px;color:var(--mute);margin-top:4px}
+#empty{margin:auto;color:var(--mute);text-align:center;max-width:24rem}
+#files{display:flex;gap:6px;flex-wrap:wrap;padding:0 8px}
+#files span{font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 10px;cursor:pointer}
+form{display:flex;gap:6px;padding:8px;background:var(--panel);border-top:1px solid var(--line);align-items:flex-end}
+textarea{flex:1;resize:none;max-height:9rem;min-height:2.6rem}
+dialog{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;width:min(32rem,92vw)}
+dialog label{display:block;margin-top:10px;font-size:14px;color:var(--mute)}
+dialog input,dialog textarea{width:100%;margin-top:4px;color:var(--ink)}
+.dots::after{content:"…";animation:d 1s steps(3) infinite}@keyframes d{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dots::after{animation:none}}
+</style>
+</head>
+<body>
+<header>
+  <select id="model" aria-label="Modell"></select>
+  <select id="level" aria-label="Denkintensität"></select>
+  <select id="search" aria-label="Websuche"><option value="off">Suche: Aus</option><option value="auto">Suche: Auto</option><option value="on">Suche: An</option></select>
+  <button id="new" title="Neuer Chat">Neu</button>
+  <button id="cfg" title="Einstellungen">Einstellungen</button>
+</header>
+<div id="log"><div id="empty">Trage zuerst unter „Einstellungen“ deinen Gemini-Key ein. Dann kannst du loschatten, PDFs und Bilder anhängen und die Suche zuschalten.</div></div>
+<div id="files"></div>
+<form id="f">
+  <button type="button" id="att" title="PDF oder Bild anhängen">Anhang</button>
+  <input type="file" id="fi" accept="image/*,application/pdf" multiple hidden>
+  <textarea id="t" rows="1" placeholder="Nachricht schreiben" enterkeyhint="send"></textarea>
+  <button class="pri" id="go">Senden</button>
+</form>
+<dialog id="dlg">
+  <form method="dialog" style="display:block;border:0;padding:4px;background:none">
+    <b>Einstellungen</b>
+    <label>Gemini-API-Key<input id="kg" type="password" autocomplete="off"></label>
+    <label>Tavily-Key (für die Websuche)<input id="kt" type="password" autocomplete="off"></label>
+    <label>Eigene Anweisung (gilt für jeden Chat)<textarea id="ks" rows="4" placeholder="z. B. Antworte auf Deutsch, kurz und technisch genau."></textarea></label>
+    <p class="meta">Die Keys bleiben nur in diesem Browser auf diesem Gerät gespeichert.</p>
+    <div style="display:flex;gap:6px;justify-content:flex-end"><button class="pri" id="ok" value="ok">Speichern</button></div>
+  </form>
+</dialog>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script>
+// Modellliste: hier kannst du später Zeilen ergänzen. lim = Free-Tier-Anfragen pro Tag.
+const MODELS=[
+ {id:'gemini-3.5-flash-lite',n:'3.5 Flash-Lite',lim:500,lv:['MINIMAL','LOW','MEDIUM','HIGH']},
+ {id:'gemini-4-hydrogen',n:'4 Hydrogen',lim:20,lv:['LOW','MEDIUM','HIGH','XHIGH']},
+ {id:'gemini-3.8-flash',n:'3.8 Flash',lim:20,lv:['MINIMAL','LOW','MEDIUM','HIGH']},
+ {id:'gemini-3.1-flash-lite',n:'3.1 Flash-Lite',lim:500,lv:['MINIMAL','LOW','MEDIUM','HIGH']}
+];
+const $=id=>document.getElementById(id);
+const ls=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}};
+let hist=[],files=[],busy=false;
+
+function day(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Los_Angeles'})}
+function counts(){try{const c=JSON.parse(ls('cnt')||'{}');return c.d===day()?c:{d:day()}}catch(e){return{d:day()}}}
+function bump(m){const c=counts();c[m]=(c[m]||0)+1;ls('cnt',JSON.stringify(c))}
+function fillModels(){
+  const c=counts(),cur=$('model').value||ls('model')||MODELS[0].id;
+  $('model').innerHTML=MODELS.map(m=>`<option value="${m.id}">${m.n} (${Math.max(0,m.lim-(c[m.id]||0))}/${m.lim} übrig)</option>`).join('');
+  $('model').value=MODELS.some(m=>m.id==cur)?cur:MODELS[0].id;
+}
+function fillLevels(){
+  const m=MODELS.find(x=>x.id==$('model').value),cur=ls('lv_'+m.id)||'';
+  $('level').innerHTML='<option value="">Denken: Standard</option>'+m.lv.map(l=>`<option value="${l}">Denken: ${l.toLowerCase()}</option>`).join('');
+  $('level').value=m.lv.includes(cur)?cur:'';
+}
+$('model').onchange=()=>{ls('model',$('model').value);fillLevels()};
+$('level').onchange=()=>ls('lv_'+$('model').value,$('level').value);
+$('search').onchange=()=>ls('search',$('search').value);
+$('search').value=ls('search')||'off';
+$('new').onclick=()=>{hist=[];files=[];showFiles();$('log').innerHTML='';};
+$('cfg').onclick=()=>{$('kg').value=ls('kg')||'';$('kt').value=ls('kt')||'';$('ks').value=ls('ks')||'';$('dlg').showModal()};
+$('ok').onclick=()=>{ls('kg',$('kg').value.trim());ls('kt',$('kt').value.trim());ls('ks',$('ks').value)};
+
+function esc(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function md(s){return window.marked&&window.DOMPurify?DOMPurify.sanitize(marked.parse(s)):'<p style="white-space:pre-wrap">'+esc(s)+'</p>'}
+function add(cls,html,meta){
+  $('empty')?.remove();
+  const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;
+  if(meta){const x=document.createElement('div');x.className='meta';x.textContent=meta;d.appendChild(x)}
+  $('log').appendChild(d);$('log').scrollTop=1e9;return d;
+}
+function showFiles(){
+  $('files').innerHTML=files.map((f,i)=>`<span data-i="${i}" title="Entfernen">${esc(f.name)} ✕</span>`).join('');
+}
+$('files').onclick=e=>{const i=e.target.dataset?.i;if(i!==undefined){files.splice(+i,1);showFiles()}};
+$('att').onclick=()=>$('fi').click();
+$('fi').onchange=async()=>{
+  for(const f of $('fi').files){
+    try{files.push({name:f.name,part:await toPart(f)})}catch(e){add('e','Datei konnte nicht gelesen werden: '+f.name)}
+  }
+  $('fi').value='';showFiles();
+};
+function b64(blob){return new Promise((r,j)=>{const x=new FileReader();x.onload=()=>r(x.result.split(',')[1]);x.onerror=j;x.readAsDataURL(blob)})}
+async function toPart(f){
+  if(f.type.startsWith('image/')&&f.type!=='image/gif'){
+    try{
+      const bm=await createImageBitmap(f),s=Math.min(1,1600/Math.max(bm.width,bm.height));
+      const c=document.createElement('canvas');c.width=Math.round(bm.width*s);c.height=Math.round(bm.height*s);
+      c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
+      return{inlineData:{mimeType:'image/jpeg',data:c.toDataURL('image/jpeg',.88).split(',')[1]}};
+    }catch(e){}
+  }
+  return{inlineData:{mimeType:f.type||'application/pdf',data:await b64(f)}};
+}
+
+async function tavily(q){
+  const k=ls('kt');if(!k)throw new Error('Kein Tavily-Key hinterlegt (Einstellungen).');
+  const r=await fetch('https://api.tavily.com/search',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+k},body:JSON.stringify({query:q,max_results:5,include_answer:true})});
+  if(!r.ok)throw new Error('Tavily-Fehler '+r.status);
+  const j=await r.json();
+  return(j.answer?'Kurzantwort: '+j.answer+'\n\n':'')+(j.results||[]).map(x=>`- ${x.title} (${x.url})\n  ${(x.content||'').slice(0,500)}`).join('\n');
+}
+const TOOL=[{functionDeclarations:[{name:'web_search',description:'Sucht aktuelle Informationen im Web. Nur nutzen, wenn dein Wissen nicht reicht oder Aktualität wichtig ist.',parameters:{type:'OBJECT',properties:{query:{type:'STRING',description:'Suchanfrage'}},required:['query']}}]}];
+
+async function call(model,level,useTool){
+  const body={contents:hist};
+  const sys=(ls('ks')||'').trim();
+  if(sys)body.systemInstruction={parts:[{text:sys}]};
+  if(level)body.generationConfig={thinkingConfig:{thinkingLevel:level}};
+  if(useTool)body.tools=TOOL;
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':ls('kg')},body:JSON.stringify(body)});
+  bump(model);fillModels();
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){
+    const msg=j.error?.message||('HTTP '+r.status);
+    if(r.status==400&&level&&/think/i.test(msg)){add('e','Dieses Modell kennt die Stufe „'+level.toLowerCase()+'“ nicht. Ich sende ohne Denk-Einstellung erneut.');return call(model,'',useTool)}
+    if(r.status==429)throw new Error('Limit erreicht (Anfragen pro Minute oder Tag). Warte kurz oder wechsle das Modell. Tageslimits werden um 9:00 Uhr zurückgesetzt.\n\n'+msg);
+    throw new Error(msg);
+  }
+  return j;
+}
+async function send(){
+  if(busy)return;const text=$('t').value.trim();
+  if(!text&&!files.length)return;
+  if(!ls('kg')){$('cfg').click();return}
+  busy=true;$('go').disabled=true;
+  const model=$('model').value,level=$('level').value,mode=$('search').value;
+  const shown=text+(files.length?'\n\n📎 '+files.map(f=>f.name).join(', '):'');
+  add('u',esc(shown).replace(/\n/g,'<br>'));
+  const parts=files.map(f=>f.part);files=[];showFiles();$('t').value='';$('t').style.height='';
+  const wait=add('b','<span class="dots">Denkt</span>');
+  let note=mode==='off'?'':'Suche: '+mode;
+  try{
+    let q=text||'Analysiere den Anhang.';
+    if(mode==='on'){
+      wait.firstChild.textContent='Sucht';
+      const res=await tavily(text);q='Websuche-Ergebnisse:\n'+res+'\n\nFrage des Nutzers: '+q;note+=' (Tavily)';
+    }
+    parts.push({text:q});hist.push({role:'user',parts});
+    for(let i=0;i<4;i++){
+      const j=await call(model,level,mode==='auto'&&!!ls('kt'));
+      const c=j.candidates?.[0];
+      if(!c?.content){throw new Error('Keine Antwort erhalten'+(j.promptFeedback?.blockReason?' ('+j.promptFeedback.blockReason+')':'')+'.')}
+      hist.push(c.content);
+      const fc=c.content.parts.filter(p=>p.functionCall);
+      if(!fc.length){
+        const out=c.content.parts.filter(p=>p.text&&!p.thought).map(p=>p.text).join('');
+        wait.remove();
+        add('b',md(out||'(leere Antwort)'),MODELS.find(m=>m.id==model).n+' · '+(level?level.toLowerCase():'Standard')+(note?' · '+note:''));
+        busy=false;$('go').disabled=false;return;
+      }
+      wait.firstChild.textContent='Sucht';
+      const rp=[];
+      for(const p of fc){
+        let result;try{result=await tavily(p.functionCall.args?.query||text)}catch(e){result='Suche fehlgeschlagen: '+e.message}
+        rp.push({functionResponse:{name:p.functionCall.name,response:{result}}});note='Suche: auto (Tavily)';
+      }
+      hist.push({role:'user',parts:rp});
+    }
+    throw new Error('Zu viele Suchschleifen.');
+  }catch(e){
+    wait.remove();add('e',e.message);
+    if(hist.length&&hist[hist.length-1].role==='user')hist.pop();
+  }
+  busy=false;$('go').disabled=false;
+}
+$('f').onsubmit=e=>{e.preventDefault();send()};
+$('t').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,144)+'px'});
+$('t').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&matchMedia('(pointer:fine)').matches){e.preventDefault();send()}});
+fillModels();fillLevels();
+</script>
+</body>
+</html>
